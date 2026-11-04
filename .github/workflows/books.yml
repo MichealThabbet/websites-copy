@@ -1,0 +1,105 @@
+name: Books Only - No Magazines or Articles
+on:
+  push:
+    branches: [run/books-only]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: books-only
+  cancel-in-progress: false
+jobs:
+  catalog:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      batches: ${{ steps.catalog.outputs.batches }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r requirements.lock
+      - run: python -m unittest discover -s tests -v
+      - id: catalog
+        run: python books.py catalog
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        with:
+          name: books-catalog
+          path: catalog.json
+          retention-days: 7
+  download:
+    needs: catalog
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        batch: ${{ fromJSON(needs.catalog.outputs.batches) }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r requirements.lock
+      - uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53
+        with:
+          name: books-catalog
+      - env:
+          BATCH: ${{ matrix.batch }}
+        run: python books.py download --batch "$BATCH"
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        if: always()
+        with:
+          name: books-batch-${{ matrix.batch }}
+          path: downloads/
+          compression-level: 0
+          retention-days: 7
+  report:
+    needs: [catalog, download]
+    if: always() && needs.catalog.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53
+        with:
+          path: results
+      - name: Report all books and exact failures
+        run: |
+          python3 - <<'PY'
+          import csv,json,os
+          from pathlib import Path
+          catalog=json.loads(Path('results/books-catalog/catalog.json').read_text())
+          rows=[]
+          manifests=list(Path('results').glob('books-batch-*/manifest.json'))
+          for manifest in manifests:
+              for e in json.loads(manifest.read_text()):
+                  rows.append({'name':e.get('original_name',''),'status':'downloaded' if 'file' in e else 'failed','bytes':e.get('bytes',0),'artifact':manifest.parent.name,'file':e.get('file',''),'url':e['url'],'error':e.get('error','')})
+          ok=[r for r in rows if r['status']=='downloaded']
+          failed=[r for r in rows if r['status']=='failed']
+          unattempted=len(catalog['resources'])-len(rows)
+          Path('report').mkdir()
+          if rows:
+              with open('report/books.csv','w',encoding='utf-8-sig',newline='') as f:
+                  w=csv.DictWriter(f,fieldnames=list(rows[0]));w.writeheader();w.writerows(rows)
+          Path('report/books.json').write_text(json.dumps(rows,ensure_ascii=False,indent=2),encoding='utf-8')
+          Path('report/catalog.json').write_text(json.dumps(catalog,ensure_ascii=False,indent=2),encoding='utf-8')
+          def notice(title,text):
+              text=text.replace('%','%25').replace('\r','%0D').replace('\n','%0A')
+              print(f'::notice title={title}::{text}',flush=True)
+          notice('Book totals',f"Catalog={len(catalog['resources'])}; Downloaded={len(ok)}; Failed={len(failed)}; Unattempted={unattempted}; CatalogErrors={len(catalog['errors'])}; Bytes={sum(r['bytes'] for r in ok)}")
+          notice('Book title samples',json.dumps([r['name'] for r in ok[:15]],ensure_ascii=False))
+          notice('Download failures',json.dumps([{'name':r['name'],'error':r['error']} for r in failed],ensure_ascii=False))
+          notice('Excluded sections','مجلة الكرازة، مجلة ينبوع المحبة، المقالات')
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as f:
+              f.write(f"# Books only\n\nCatalog: {len(catalog['resources'])}; Downloaded: {len(ok)}; Failed: {len(failed)}; Unattempted: {unattempted}.\n\n")
+              for r in ok:f.write('- '+r['name']+'\n')
+          if failed or unattempted or catalog['errors']:raise SystemExit(1)
+          PY
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        if: always()
+        with:
+          name: books-file-list
+          path: report/
+          retention-days: 7
