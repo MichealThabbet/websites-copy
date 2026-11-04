@@ -17,6 +17,8 @@ class Downloader:
    if p.username or p.password:raise ValueError('Credentials in URLs are not allowed')
    if p.scheme not in ('https','http'):raise ValueError('HTTP(S) required')
    root=f'{p.scheme}://{p.netloc}'
+   if root in getattr(self.a,'authorized_origin',[]):
+    self.rules[root]=RobotFileParser();self.rules[root].parse([])
    if root not in self.rules:
     rp=RobotFileParser(root+'/robots.txt')
     # Robots retrieval must use the same proxy, TLS trust and timeout as downloads.
@@ -74,10 +76,14 @@ class Downloader:
    try:
     data,typ=self.read(u);base=self.final_url or u
     if 'html' not in typ:self.save(base);continue
-    for tag in BeautifulSoup(data,'html.parser').select('a[href],img[src],audio[src],video[src],source[src]'):
+    soup=BeautifulSoup(data,'html.parser')
+    containers=soup.select(self.a.selector) if getattr(self.a,'selector',None) else [soup]
+    for tag in [tag for container in containers for tag in container.select('a[href],img[src],audio[src],video[src],source[src]')]:
      v=urldefrag(urljoin(base,tag.get('href') or tag.get('src')))[0]
      if urlparse(v).scheme not in ('http','https'):continue
-     if Path(urlparse(v).path).suffix.lower() in EXT or tag.name in ('img','audio','video','source'):self.save(v)
+     suffix=Path(urlparse(v).path).suffix.lower()
+     if suffix in EXT or tag.name in ('img','audio','video','source'):
+      if not getattr(self.a,'extensions',None) or suffix in self.a.extensions.split(','):self.save(v)
      elif d<self.a.depth and urlparse(v).netloc==urlparse(start).netloc:queue.append((v,d+1))
    except Exception as e:self.log.append(dict(url=u,error=str(e)))
  def iiif(self,u):
@@ -95,7 +101,7 @@ class Downloader:
  def finish(self):
   (self.out/'manifest.json').write_text(json.dumps(self.log,ensure_ascii=False,indent=2),encoding='utf-8')
 if __name__=='__main__':
- p=argparse.ArgumentParser();p.add_argument('url');p.add_argument('--mode',choices=['file','page','iiif'],default='page');p.add_argument('--max-files',type=int,default=40);p.add_argument('--max-pages',type=int,default=20);p.add_argument('--max-mb',type=int,default=50);p.add_argument('--depth',type=int,default=1);a=p.parse_args()
+ p=argparse.ArgumentParser();p.add_argument('url');p.add_argument('--mode',choices=['file','page','iiif'],default='page');p.add_argument('--max-files',type=int,default=40);p.add_argument('--max-pages',type=int,default=20);p.add_argument('--max-mb',type=int,default=50);p.add_argument('--depth',type=int,default=1);p.add_argument('--authorized-origin',action='append',default=[],help='Exact origin with explicit owner permission; skips robots only on this origin');p.add_argument('--selector',help='CSS selector containing relevant page content');p.add_argument('--extensions',help='Comma-separated file suffixes, e.g. .pdf');a=p.parse_args()
  if min(a.max_files,a.max_pages,a.max_mb)<=0 or a.depth<0:p.error('Invalid limits')
  t=Downloader(a)
  try:

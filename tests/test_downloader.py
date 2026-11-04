@@ -114,3 +114,21 @@ class DownloaderTest(unittest.TestCase):
         result = subprocess.run([sys.executable, str(script), 'ftp://example.com/file', '--mode', 'file'], capture_output=True)
         self.assertEqual(1, result.returncode)
         self.assertIn('error', json.loads(Path('downloads/manifest.json').read_text())[0])
+
+    def test_owner_authorization_is_exact_origin(self):
+        self.d.a.authorized_origin = [self.base]
+        with patch.object(self.d.s, 'get', wraps=self.d.s.get) as get:
+            self.d.save(self.base + '/file.pdf')
+        self.assertEqual(1, self.d.count)
+        self.assertFalse(any('/robots.txt' in c.args[0] for c in get.call_args_list))
+
+    def test_other_origin_does_not_bypass_robots(self):
+        self.d.a.authorized_origin = ['https://owner.example']
+        self.d.save(self.base + '/denied.pdf')
+        self.assertIn('robots denied', self.d.log[0]['error'])
+
+    def test_extension_filter_selects_pdf(self):
+        self.d.a.extensions = '.pdf'
+        self.d.crawl(self.base + '/page')
+        self.assertEqual(1, self.d.count)
+        self.assertTrue(self.d.log[0]['file'].endswith('.pdf'))

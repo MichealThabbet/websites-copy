@@ -12,6 +12,10 @@ on:
         type: choice
         options: [page, file, iiif]
         default: page
+      owner_authorized:
+        description: I own this site and authorize downloading despite unavailable robots.txt
+        type: boolean
+        default: false
 permissions:
   contents: read
 concurrency:
@@ -30,8 +34,19 @@ jobs:
       - run: python -m unittest discover -s tests -v
       - env:
           TARGET: ${{ inputs.url || 'https://www.stmark-kw.net/category.aspx?catid=18' }}
+          OWNER_AUTHORIZED: ${{ github.event_name == 'push' || inputs.owner_authorized }}
           MODE: ${{ inputs.mode || 'page' }}
-        run: python downloader.py "$TARGET" --mode "$MODE"
+        run: |
+          args=()
+          if [ "$OWNER_AUTHORIZED" = "true" ]; then
+            args+=(--authorized-origin https://www.stmark-kw.net)
+            args+=(--authorized-origin https://stmark-media.s3.amazonaws.com)
+            args+=(--authorized-origin https://stmark-media.s3.us-east-1.amazonaws.com)
+          fi
+          if [[ "$TARGET" == https://www.stmark-kw.net/* ]]; then
+            args+=(--selector '#content' --extensions .pdf --max-files 10 --max-pages 12 --depth 2)
+          fi
+          python downloader.py "$TARGET" --mode "$MODE" "${args[@]}"
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         if: always()
         with:
