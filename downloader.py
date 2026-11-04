@@ -1,4 +1,4 @@
-import argparse,hashlib,json,time,mimetypes,sys
+import argparse,hashlib,json,time,mimetypes,sys,os
 from pathlib import Path
 from urllib.parse import urlparse,urljoin,urldefrag
 from urllib.robotparser import RobotFileParser
@@ -7,7 +7,7 @@ from bs4 import BeautifulSoup
 EXT={'.pdf','.jpg','.jpeg','.png','.tif','.tiff','.webp','.doc','.docx','.xls','.xlsx','.epub','.djvu','.txt','.xml','.json','.zip','.mp3','.mp4','.m4a','.wav','.ogg','.webm'}
 class Downloader:
  def __init__(self,a):
-  self.a=a;self.out=Path('downloads');self.out.mkdir(exist_ok=True);self.log=[];self.seen=set();self.rules={};self.count=0;self.attempts=0
+  self.a=a;self.out=Path('downloads');self.out.mkdir(exist_ok=True);self.log=[];self.seen=set();self.rules={};self.count=0;self.attempts=0;self.skipped=0
   self.s=requests.Session();self.s.headers['User-Agent']='HeritageDownloader/1.0'
   # Do not retry blocking or rate-limit responses.
   self.last_request={};self.final_url=None
@@ -51,8 +51,11 @@ class Downloader:
    return bytes(data),r.headers.get('Content-Type','')
  def save(self,u):
   if self.attempts>=self.a.max_files or 'file:'+u in self.seen:return
+  self.seen.add('file:'+u)
+  if self.skipped<getattr(self.a,'skip_files',0):
+   self.skipped+=1;return
   self.attempts+=1
-  self.seen.add('file:'+u);tmp=None
+  tmp=None
   try:
    with self.get(u) as r:
     ext=Path(urlparse(u).path).suffix.lower()
@@ -99,10 +102,15 @@ class Downloader:
      if k not in ('service','thumbnail'):yield from images(v)
   for v in dict.fromkeys(images(m)):self.save(urljoin(base,v))
  def finish(self):
+  errors=sum('error' in entry for entry in self.log)
+  summary=f'Downloaded: {self.count}; failed: {errors}; skipped from earlier batches: {self.skipped}; bytes: {sum(e.get("bytes",0) for e in self.log)}'
+  print(summary,flush=True)
+  if os.environ.get('GITHUB_STEP_SUMMARY'):
+   with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as report:report.write('## Download results\n\n'+summary+'\n')
   (self.out/'manifest.json').write_text(json.dumps(self.log,ensure_ascii=False,indent=2),encoding='utf-8')
 if __name__=='__main__':
- p=argparse.ArgumentParser();p.add_argument('url');p.add_argument('--mode',choices=['file','page','iiif'],default='page');p.add_argument('--max-files',type=int,default=40);p.add_argument('--max-pages',type=int,default=20);p.add_argument('--max-mb',type=int,default=50);p.add_argument('--depth',type=int,default=1);p.add_argument('--authorized-origin',action='append',default=[],help='Exact origin with explicit owner permission; skips robots only on this origin');p.add_argument('--selector',help='CSS selector containing relevant page content');p.add_argument('--extensions',help='Comma-separated file suffixes, e.g. .pdf');a=p.parse_args()
- if min(a.max_files,a.max_pages,a.max_mb)<=0 or a.depth<0:p.error('Invalid limits')
+ p=argparse.ArgumentParser();p.add_argument('url');p.add_argument('--mode',choices=['file','page','iiif'],default='page');p.add_argument('--max-files',type=int,default=40);p.add_argument('--max-pages',type=int,default=20);p.add_argument('--max-mb',type=int,default=50);p.add_argument('--depth',type=int,default=1);p.add_argument('--skip-files',type=int,default=0,help='Skip this many distinct discovered resources from earlier batches');p.add_argument('--authorized-origin',action='append',default=[],help='Exact origin with explicit owner permission; skips robots only on this origin');p.add_argument('--selector',help='CSS selector containing relevant page content');p.add_argument('--extensions',help='Comma-separated file suffixes, e.g. .pdf');a=p.parse_args()
+ if min(a.max_files,a.max_pages,a.max_mb)<=0 or min(a.depth,a.skip_files)<0:p.error('Invalid limits')
  t=Downloader(a)
  try:
   if a.mode=='file':t.save(a.url)

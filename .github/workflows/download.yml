@@ -12,6 +12,9 @@ on:
         type: choice
         options: [page, file, iiif]
         default: page
+      skip_files:
+        description: Number of earlier resources to skip
+        default: '0'
       owner_authorized:
         description: I own this site and authorize downloading despite unavailable robots.txt
         type: boolean
@@ -35,6 +38,7 @@ jobs:
       - env:
           TARGET: ${{ inputs.url || 'https://www.stmark-kw.net/category.aspx?catid=18' }}
           OWNER_AUTHORIZED: ${{ github.event_name == 'push' || inputs.owner_authorized }}
+          SKIP_FILES: ${{ github.event_name == 'push' && '10' || inputs.skip_files || '0' }}
           MODE: ${{ inputs.mode || 'page' }}
         run: |
           args=()
@@ -44,13 +48,13 @@ jobs:
             args+=(--authorized-origin https://stmark-media.s3.us-east-1.amazonaws.com)
           fi
           if [[ "$TARGET" == https://www.stmark-kw.net/* ]]; then
-            args+=(--selector '#content' --extensions .pdf --max-files 10 --max-pages 12 --depth 2)
+            args+=(--selector '#content' --extensions .pdf --max-files 50 --max-pages 100 --depth 4 --skip-files "$SKIP_FILES")
           fi
           python downloader.py "$TARGET" --mode "$MODE" "${args[@]}"
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         if: always()
         with:
-          name: heritage-downloads
+          name: heritage-downloads-next-50
           path: downloads/
           if-no-files-found: warn
           retention-days: 7

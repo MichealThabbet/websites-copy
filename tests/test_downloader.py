@@ -132,3 +132,10 @@ class DownloaderTest(unittest.TestCase):
         self.d.crawl(self.base + '/page')
         self.assertEqual(1, self.d.count)
         self.assertTrue(self.d.log[0]['file'].endswith('.pdf'))
+
+    def test_skip_previous_batch_without_downloading(self):
+        self.d.a.skip_files = 1
+        self.d.crawl(self.base + '/page')
+        self.assertEqual(1, self.d.skipped)
+        self.assertEqual(1, self.d.count)
+        self.assertEqual(self.base + '/image.png', self.d.log[0]['url'])
