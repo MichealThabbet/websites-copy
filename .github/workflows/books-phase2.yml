@@ -1,5 +1,5 @@
 name: Books Phase 2 - Resume After Saved Batches
-true:
+'on':
   push:
     branches:
     - run/books-phase2

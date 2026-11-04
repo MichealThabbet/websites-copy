@@ -1,5 +1,5 @@
 name: Stop Books Phase 2 After Three Minutes
-true:
+'on':
   push:
     branches:
     - run/books-phase2
