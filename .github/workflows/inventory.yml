@@ -1,0 +1,58 @@
+name: Downloaded File Inventory
+on:
+  push:
+    branches: [run/download-inventory]
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  inventory:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
+        with:
+          name: heritage-downloads
+          run-id: 41756421558
+          github-token: ${{ github.token }}
+          path: inventory/first
+      - uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
+        with:
+          name: heritage-downloads-next-50
+          run-id: 41757048719
+          github-token: ${{ github.token }}
+          path: inventory/next
+      - name: Report original filenames from saved manifests
+        run: |
+          python3 - <<'PY'
+          import csv,json,os
+          from pathlib import Path
+          from urllib.parse import urlparse,unquote
+          rows=[]
+          for manifest in sorted(Path('inventory').glob('*/manifest.json')):
+              for entry in json.loads(manifest.read_text()):
+                  name=unquote(urlparse(entry['url']).path.rsplit('/',1)[-1])
+                  rows.append({'batch':manifest.parent.name,'name':name,'status':'downloaded' if 'file' in entry else 'failed','bytes':entry.get('bytes',0),'stored_file':entry.get('file',''),'url':entry['url'],'error':entry.get('error','')})
+          Path('report').mkdir()
+          with open('report/filenames.csv','w',encoding='utf-8-sig',newline='') as f:
+              w=csv.DictWriter(f,fieldnames=list(rows[0]));w.writeheader();w.writerows(rows)
+          Path('report/filenames.json').write_text(json.dumps(rows,ensure_ascii=False,indent=2),encoding='utf-8')
+          successful=[r for r in rows if r['status']=='downloaded']
+          failed=[r for r in rows if r['status']=='failed']
+          def notice(title,text):
+              text=text.replace('%','%25').replace('\r','%0D').replace('\n','%0A')
+              print(f'::notice title={title}::{text}',flush=True)
+          notice('Inventory totals',f'Downloaded={len(successful)}; Failed={len(failed)}')
+          for start in range(0,len(successful),10):
+              notice(f'Original filenames {start+1}-{min(start+10,len(successful))}',json.dumps([r['name'] for r in successful[start:start+10]],ensure_ascii=False))
+          if failed:notice('Failed resources',json.dumps([{'name':r['name'],'error':r['error']} for r in failed],ensure_ascii=False))
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as f:
+              f.write(f'# Downloaded file inventory\n\nDownloaded: {len(successful)}. Failed: {len(failed)}.\n\n')
+              for row in successful:f.write('- '+row['name']+'\n')
+          PY
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: downloaded-file-names
+          path: report/
+          retention-days: 7
