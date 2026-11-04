@@ -1,0 +1,47 @@
+[
+  {
+    "country": "Italy",
+    "url": "https://atlas.paths-erc.eu/",
+    "status": "discovery seed, not live verified"
+  },
+  {
+    "country": "Vatican",
+    "url": "https://digi.vatlib.it/",
+    "status": "discovery seed, not live verified"
+  },
+  {
+    "country": "France",
+    "url": "https://gallica.bnf.fr/",
+    "status": "discovery seed, not live verified"
+  },
+  {
+    "country": "USA",
+    "url": "https://archive.org/",
+    "status": "discovery seed, not live verified"
+  },
+  {
+    "country": "UK",
+    "url": "https://digital.bodleian.ox.ac.uk/",
+    "status": "discovery seed, not live verified"
+  },
+  {
+    "country": "Australia",
+    "url": "https://trove.nla.gov.au/",
+    "status": "discovery seed, not live verified"
+  },
+  {
+    "country": "Russia",
+    "url": "https://nlr.ru/",
+    "status": "discovery seed, not live verified"
+  },
+  {
+    "country": "Spain",
+    "url": "https://www.bne.es/",
+    "status": "discovery seed, not live verified"
+  },
+  {
+    "country": "Germany",
+    "url": "https://www.bsb-muenchen.de/",
+    "status": "discovery seed, not live verified"
+  }
+]
